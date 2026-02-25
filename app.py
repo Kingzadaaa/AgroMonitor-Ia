@@ -3,6 +3,7 @@ import streamlit_authenticator as stauth
 from datetime import date, datetime
 import json
 import os
+import pandas as pd # Necessário para os filtros do histórico
 
 # --- Importando seus módulos personalizados ---
 from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_audio
@@ -18,12 +19,10 @@ config_usuarios = {
     "usernames": {
         "marco": {
             "name": "Marco Antonio",
-            # Senha criptografada correspondente a "123"
             "password": "$2b$12$49wvxABeVD6FyIsDuZGCK.h.axhgxTdJMqLZaW/ZJGJFzFe.1L9gy" 
         },
         "agronomo": {
             "name": "Consultor Tecnico",
-            # Senha criptografada correspondente a "123"
             "password": "$2b$12$49wvxABeVD6FyIsDuZGCK.h.axhgxTdJMqLZaW/ZJGJFzFe.1L9gy"
         }
     }
@@ -36,7 +35,6 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# Renderiza a tela de login na página principal
 st.write("#") 
 name, authentication_status, username = authenticator.login(location='main')
 
@@ -52,11 +50,9 @@ if authentication_status:
     pagina = st.sidebar.radio("Navegação", ["Dashboard Analítico", "Nova Coleta de Dados", "Histórico e Mapas", "Ajuda"])
     st.sidebar.divider()
     
-    # Campos para inserir as chaves da API
     weather_key = st.sidebar.text_input("OpenWeather Key", type="password")
     google_key = st.sidebar.text_input("Google Gemini Key", type="password")
     
-    # Inicializações de Memória de Sessão (Session State)
     if "clima_atual" not in st.session_state:
         st.session_state.clima_atual = {"temp": 0.0, "umid": 0.0, "desc": "-"}
     if "sensor_iot" not in st.session_state:
@@ -112,7 +108,6 @@ if authentication_status:
             with st.container(border=True):
                 st.subheader("☁️ Sensor Wi-Fi")
                 if st.button("Sincronizar Nuvem", type="primary", use_container_width=True):
-                    # Agora passamos o username para o hardware.py buscar o dado certo
                     d_wifi, msg = ler_sensor_wifi(username)
                     if d_wifi:
                         st.session_state.sensor_iot = d_wifi
@@ -121,12 +116,26 @@ if authentication_status:
                         st.error(msg)
                 s_umid = st.number_input("Umidade Solo (%)", value=float(st.session_state.sensor_iot.get("umid", 0)))
 
+        # --- BLOCO DA IA CORRIGIDO (AGORA EXIBE O RESULTADO) ---
         with st.container(border=True):
             st.subheader("🧠 Análise por IA")
             fotos = st.file_uploader("Fotos da Planta", type=["jpg", "png"], accept_multiple_files=True)
+            
             if fotos and st.button("Analisar com Gemini"):
-                st.session_state.ai_results = analisar_imagem_gemini(fotos, google_key)
+                with st.spinner("Processando imagem na nuvem..."):
+                    st.session_state.ai_results = analisar_imagem_gemini(fotos, google_key)
                 st.success("Análise Finalizada!")
+            
+            # Se tiver resultado na memória, ele desenha na tela
+            if st.session_state.ai_results:
+                st.divider()
+                st.markdown("#### 📋 Diagnóstico da IA:")
+                # Exibe o resultado de forma limpa
+                if isinstance(st.session_state.ai_results, dict):
+                    for chave, valor in st.session_state.ai_results.items():
+                        st.write(f"**{chave.title()}:** {valor}")
+                else:
+                    st.write(st.session_state.ai_results)
 
         st.divider()
         if st.button("💾 FINALIZAR E SALVAR NO SUPABASE", use_container_width=True, type="primary"):
@@ -146,20 +155,46 @@ if authentication_status:
             }
             salvar_no_banco(dados_para_salvar)
             st.success("Coleta registrada com sucesso na sua conta!")
+            # Limpa a IA após salvar para a próxima coleta
+            st.session_state.ai_results = None 
 
     # ------------------------------------------
-    # PÁGINA: HISTÓRICO
+    # PÁGINA: HISTÓRICO (AGORA COM FILTROS)
     # ------------------------------------------
     elif pagina == "Histórico e Mapas":
         st.title("📂 Meu Histórico")
         df = ler_banco(username) 
-        st.dataframe(df, use_container_width=True)
         
         if not df.empty:
+            # --- Sistema de Filtros ---
+            with st.expander("🔍 Filtros de Busca", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    lista_plantas = df['planta'].unique().tolist()
+                    lista_plantas.insert(0, "Todas as Plantas")
+                    filtro_planta = st.selectbox("Filtrar por Identificação", lista_plantas)
+                with col2:
+                    filtro_data = st.date_input("Filtrar por Data", value=None)
+
+            # --- Aplicando os Filtros ---
+            df_filtrado = df.copy()
+            if filtro_planta != "Todas as Plantas":
+                df_filtrado = df_filtrado[df_filtrado['planta'] == filtro_planta]
+            
+            if filtro_data:
+                # Converte a coluna para data pura e compara
+                df_filtrado['data'] = pd.to_datetime(df_filtrado['data']).dt.date
+                df_filtrado = df_filtrado[df_filtrado['data'] == filtro_data]
+
+            st.dataframe(df_filtrado, use_container_width=True)
+            
+            st.divider()
             id_del = st.number_input("ID para excluir", min_value=0)
             if st.button("Excluir Registro permanentemente"):
                 excluir_registro(id_del, username)
                 st.rerun()
+        else:
+            st.info("Nenhum dado encontrado.")
 
 # ==========================================
 # 3. TRATAMENTO DE ERROS E CADASTRO
@@ -171,11 +206,9 @@ elif authentication_status == None:
     st.warning("AgroMonitor AI: Por favor, faça login para acessar seus dados.")
     
     st.divider()
-    # Cria uma "sanfona" para não poluir a tela inicial
     with st.expander("Não tem uma conta? Cadastre-se aqui"):
         try:
-            # Chama o formulário de registro da biblioteca
             if authenticator.register_user('Criar Nova Conta', preauthorization=False):
-                st.success('Usuário registrado com sucesso! Você já pode fazer login com ele.')
+                st.success('Usuário registrado! (Lembre-se: em modo nuvem este usuário pode ser apagado após reinício)')
         except Exception as e:
             st.error(e)
