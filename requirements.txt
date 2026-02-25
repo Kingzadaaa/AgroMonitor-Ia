@@ -9,3 +9,4 @@ pillow
 fpdf2
 streamlit-mic-recorder
 pyyaml
+pyserial
