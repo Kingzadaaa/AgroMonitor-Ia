@@ -18,11 +18,13 @@ config_usuarios = {
     "usernames": {
         "marco": {
             "name": "Marco Antonio",
-            "password": "123" 
+            # Senha criptografada correspondente a "123"
+            "password": "$2b$12$49wvxABeVD6FyIsDuZGCK.h.axhgxTdJMqLZaW/ZJGJFzFe.1L9gy" 
         },
         "agronomo": {
             "name": "Consultor Tecnico",
-            "password": "456"
+            # Senha criptografada correspondente a "123"
+            "password": "$2b$12$49wvxABeVD6FyIsDuZGCK.h.axhgxTdJMqLZaW/ZJGJFzFe.1L9gy"
         }
     }
 }
@@ -50,6 +52,7 @@ if authentication_status:
     pagina = st.sidebar.radio("Navegação", ["Dashboard Analítico", "Nova Coleta de Dados", "Histórico e Mapas", "Ajuda"])
     st.sidebar.divider()
     
+    # Campos para inserir as chaves da API
     weather_key = st.sidebar.text_input("OpenWeather Key", type="password")
     google_key = st.sidebar.text_input("Google Gemini Key", type="password")
     
@@ -158,8 +161,21 @@ if authentication_status:
                 excluir_registro(id_del, username)
                 st.rerun()
 
-# --- TRATAMENTO DE ERROS DE LOGIN (Alinhados à esquerda) ---
+# ==========================================
+# 3. TRATAMENTO DE ERROS E CADASTRO
+# ==========================================
 elif authentication_status == False:
     st.error("Usuário ou senha incorretos.")
+    
 elif authentication_status == None:
     st.warning("AgroMonitor AI: Por favor, faça login para acessar seus dados.")
+    
+    st.divider()
+    # Cria uma "sanfona" para não poluir a tela inicial
+    with st.expander("Não tem uma conta? Cadastre-se aqui"):
+        try:
+            # Chama o formulário de registro da biblioteca
+            if authenticator.register_user('Criar Nova Conta', preauthorization=False):
+                st.success('Usuário registrado com sucesso! Você já pode fazer login com ele.')
+        except Exception as e:
+            st.error(e)
