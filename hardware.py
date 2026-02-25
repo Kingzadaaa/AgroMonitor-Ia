@@ -32,21 +32,16 @@ def ler_sensor_wifi(usuario_logado):
         if response.status_code == 200:
             texto = response.text
             
-            # Método infalível: cortando o HTML para pegar o valor exato
-            if 'class="umid">' in texto:
-                pedaco = texto.split('class="umid">')[1]
-                valor_bruto = pedaco.split('</div>')[0].replace('%', '').strip()
-                
-                try:
-                    umidade_valor = float(valor_bruto)
-                    return {"umid": umidade_valor}, "Sucesso"
-                except ValueError:
-                    # Se não for um número, ele vai nos dedurar o que é!
-                    return None, f"O sensor não enviou o número. O site diz: '{valor_bruto}'"
+            # Caçador Universal: Pega qualquer número (ex: 50 ou 50.5) que tenha um % logo depois
+            match = re.search(r'(\d+(?:\.\d+)?)\s*%', texto)
+            
+            if match:
+                umidade_valor = float(match.group(1))
+                return {"umid": umidade_valor}, "Sucesso"
             else:
-                return None, "Não encontrou a caixinha de umidade no código do site."
+                # Se ainda assim não achar, ele vai imprimir um pedaço do site para vermos o que está chegando
+                return None, f"Porcentagem não encontrada. O site enviou: {texto[:50]}..."
         else:
             return None, f"Erro no servidor: {response.status_code}"
     except Exception as e:
         return None, f"Erro de conexão com sensor: {str(e)}"
-
