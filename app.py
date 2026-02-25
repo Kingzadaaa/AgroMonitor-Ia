@@ -145,6 +145,8 @@ with col_so:
             salvar_no_banco(dados_para_salvar)
             st.success("Coleta registrada com sucesso na sua conta!")
 
+   # ... (código anterior da Nova Coleta)
+    
     # ------------------------------------------
     # PÁGINA: HISTÓRICO
     # ------------------------------------------
@@ -158,6 +160,12 @@ with col_so:
             if st.button("Excluir Registro permanentemente"):
                 excluir_registro(id_del, username)
                 st.rerun()
+
+# --- ATENÇÃO: Estes últimos elifs devem estar alinhados com o primeiro 'if authentication_status' ---
+elif authentication_status == False:
+    st.error("Usuário ou senha incorretos.")
+elif authentication_status == None:
+    st.warning("AgroMonitor AI: Por favor, faça login para acessar seus dados.")
 
 # ==========================================
 # 3. TRATAMENTO DE ERROS DE LOGIN
