@@ -59,4 +59,45 @@ def salvar_bytes_audio(audio, planta, data):
         nome = f"audios/{data.strftime('%Y%m%d')}_{datetime.now().strftime('%H%M%S')}.wav"
         with open(nome, "wb") as f: f.write(audio)
         return nome
+
     return None
+
+# ----------------------------------------------------
+# SISTEMA DE USUÁRIOS (COLE NO FINAL DO banco.py)
+# ----------------------------------------------------
+from sqlalchemy import text
+import streamlit as st
+
+def ler_usuarios_supabase():
+    try:
+        with engine.begin() as conn:
+            # 1. Cria a tabela automaticamente se ela não existir
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS usuarios_login (
+                    username TEXT PRIMARY KEY,
+                    name TEXT,
+                    password TEXT
+                )
+            """))
+            
+            # 2. Busca todos os usuários cadastrados
+            result = conn.execute(text("SELECT username, name, password FROM usuarios_login"))
+            usuarios = {"usernames": {}}
+            for row in result:
+                usuarios["usernames"][row[0]] = {"name": row[1], "password": row[2]}
+            return usuarios
+    except Exception as e:
+        st.error(f"Erro ao conectar com tabela de usuários: {e}")
+        return {"usernames": {}}
+
+def registrar_novo_usuario(username, name, password):
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO usuarios_login (username, name, password) 
+                VALUES (:u, :n, :p)
+            """), {"u": username, "n": name, "p": password})
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar usuário no banco: {e}")
+        return False
