@@ -3,8 +3,7 @@ import pandas as pd
 
 # ============= COLE SEU LINK DO SUPABASE AQUI =============
 # Exemplo: "postgresql://postgres.xxx:suasenha@aws-0-sa-east-1..."
-DB_URL = "postgresql://postgres:Projetoepamig2026@db.bcptmdptgqchzjhfngio.supabase.co:5432/postgres" 
-
+DB_URL = "postgresql+psycopg2://postgres.bcptmdptgqchzjhfngio:Projetoepamig2026@aws-1-us-east-2.pooler.supabase.com:6543/postgres"
 # Criando o motor de conexão com a nuvem
 engine = create_engine(DB_URL)
 metadata = MetaData()
