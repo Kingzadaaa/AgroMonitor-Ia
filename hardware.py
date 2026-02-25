@@ -28,18 +28,25 @@ def ler_sensor_wifi(usuario_logado):
     url = f"https://MarcoAntonio2026.pythonanywhere.com/?usuario={usuario_logado}"
     
     try:
-        response = requests.get(url, timeout=10) # Aumentei o tempo de espera
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             texto = response.text
-            # Essa linha caça qualquer número (com ou sem ponto decimal) antes do %
-            match = re.search(r'class="umid">\s*([0-9.]+)\s*%', texto)
             
-            if match:
-                umidade_valor = float(match.group(1))
-                return {"umid": umidade_valor}, "Sucesso"
+            # Método infalível: cortando o HTML para pegar o valor exato
+            if 'class="umid">' in texto:
+                pedaco = texto.split('class="umid">')[1]
+                valor_bruto = pedaco.split('</div>')[0].replace('%', '').strip()
+                
+                try:
+                    umidade_valor = float(valor_bruto)
+                    return {"umid": umidade_valor}, "Sucesso"
+                except ValueError:
+                    # Se não for um número, ele vai nos dedurar o que é!
+                    return None, f"O sensor não enviou o número. O site diz: '{valor_bruto}'"
             else:
-                return None, "Dado não encontrado na tela do servidor."
+                return None, "Não encontrou a caixinha de umidade no código do site."
         else:
             return None, f"Erro no servidor: {response.status_code}"
     except Exception as e:
         return None, f"Erro de conexão com sensor: {str(e)}"
+
