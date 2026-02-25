@@ -1,0 +1,11 @@
+streamlit
+streamlit-authenticator
+sqlalchemy
+psycopg2-binary
+requests
+google-generativeai
+pandas
+pillow
+fpdf2
+streamlit-mic-recorder
+pyyaml
