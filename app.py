@@ -5,7 +5,6 @@ import json
 import os
 
 # --- Importando seus módulos personalizados ---
-# Note que removemos o 'deletar_todo_historico' que não está mais no banco.py
 from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_audio
 from hardware import get_weather_data, listar_portas_com, ler_sensor_esp, ler_sensor_wifi
 from ia_core import analisar_imagem_gemini, preparar_imagem_para_ia
@@ -35,15 +34,15 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-# AJUSTE DA LINHA 41: Agora usando o parâmetro nomeado 'location'
-st.write("#") # Espaçamento topo
+# Renderiza a tela de login na página principal
+st.write("#") 
 name, authentication_status, username = authenticator.login(location='main')
 
 # ==========================================
 # 2. ÁREA RESTRITA (SÓ ENTRA SE LOGAR)
 # ==========================================
 if authentication_status:
-    # --- Configuração da Página ---
+    # --- Configuração da Barra Lateral ---
     st.sidebar.title(f"Olá, {name}!")
     authenticator.logout("Sair do Sistema", "sidebar")
     
@@ -54,7 +53,7 @@ if authentication_status:
     weather_key = st.sidebar.text_input("OpenWeather Key", type="password")
     google_key = st.sidebar.text_input("Google Gemini Key", type="password")
     
-    # Inicializações de Memória de Sessão
+    # Inicializações de Memória de Sessão (Session State)
     if "clima_atual" not in st.session_state:
         st.session_state.clima_atual = {"temp": 0.0, "umid": 0.0, "desc": "-"}
     if "sensor_iot" not in st.session_state:
@@ -106,18 +105,18 @@ if authentication_status:
                     if d: st.session_state.clima_atual = {"temp": d['main']['temp'], "umid": d['main']['humidity'], "desc": d['weather'][0]['description'].title()}
                 st.write(f"Temp: {st.session_state.clima_atual['temp']}°C | Umid: {st.session_state.clima_atual['umid']}%")
 
-       # No app.py, dentro da página "Nova Coleta de Dados"
-with col_so:
-    with st.container(border=True):
-        st.subheader("☁️ Sensor Wi-Fi")
-        if st.button("Sincronizar Nuvem", type="primary", use_container_width=True):
-            # AGORA PASSAMOS O USERNAME LOGADO AQUI
-            d_wifi, msg = ler_sensor_wifi(username) 
-            if d_wifi:
-                st.session_state.sensor_iot = d_wifi
-                st.success(f"Sincronizado para o usuário: {username}!")
-            else:
-                st.error(msg)
+        with col_so:
+            with st.container(border=True):
+                st.subheader("☁️ Sensor Wi-Fi")
+                if st.button("Sincronizar Nuvem", type="primary", use_container_width=True):
+                    # Agora passamos o username para o hardware.py buscar o dado certo
+                    d_wifi, msg = ler_sensor_wifi(username)
+                    if d_wifi:
+                        st.session_state.sensor_iot = d_wifi
+                        st.success("Sincronizado!")
+                    else:
+                        st.error(msg)
+                s_umid = st.number_input("Umidade Solo (%)", value=float(st.session_state.sensor_iot.get("umid", 0)))
 
         with st.container(border=True):
             st.subheader("🧠 Análise por IA")
@@ -145,8 +144,6 @@ with col_so:
             salvar_no_banco(dados_para_salvar)
             st.success("Coleta registrada com sucesso na sua conta!")
 
-   # ... (código anterior da Nova Coleta)
-    
     # ------------------------------------------
     # PÁGINA: HISTÓRICO
     # ------------------------------------------
@@ -161,15 +158,7 @@ with col_so:
                 excluir_registro(id_del, username)
                 st.rerun()
 
-# --- ATENÇÃO: Estes últimos elifs devem estar alinhados com o primeiro 'if authentication_status' ---
-elif authentication_status == False:
-    st.error("Usuário ou senha incorretos.")
-elif authentication_status == None:
-    st.warning("AgroMonitor AI: Por favor, faça login para acessar seus dados.")
-
-# ==========================================
-# 3. TRATAMENTO DE ERROS DE LOGIN
-# ==========================================
+# --- TRATAMENTO DE ERROS DE LOGIN (Alinhados à esquerda) ---
 elif authentication_status == False:
     st.error("Usuário ou senha incorretos.")
 elif authentication_status == None:
