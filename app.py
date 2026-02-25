@@ -45,8 +45,16 @@ if authentication_status:
     pagina = st.sidebar.radio("Navegação", ["Dashboard Analítico", "Nova Coleta de Dados", "Histórico e Mapas", "Ajuda"])
     st.sidebar.divider()
     
-    weather_key = st.sidebar.text_input("OpenWeather Key", type="password")
-    google_key = st.sidebar.text_input("Google Gemini Key", type="password")
+    # --- BUSCA AUTOMÁTICA DE CHAVES (SECRETS) ---
+    try:
+        default_weather = st.secrets["OPENWEATHER_KEY"]
+        default_google = st.secrets["GEMINI_API_KEY"]
+    except:
+        default_weather = ""
+        default_google = ""
+        
+    weather_key = st.sidebar.text_input("OpenWeather Key", type="password", value=default_weather)
+    google_key = st.sidebar.text_input("Google Gemini Key", type="password", value=default_google)
     
     # --- Variáveis de Memória (Session State) ---
     if "clima_atual" not in st.session_state:
@@ -282,3 +290,4 @@ elif authentication_status == None:
                         st.success("Conta criada com sucesso no Supabase! Recarregando a página...")
                         time.sleep(2)
                         st.rerun()
+
