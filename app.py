@@ -5,8 +5,9 @@ import json
 import os
 import pandas as pd 
 import time
-from PIL import Image # Nova importação para lidar com os arquivos .tif
+from PIL import Image 
 import io
+import numpy as np # <--- NOVA IMPORTAÇÃO: O "cérebro" matemático para ler TIFs de drones
 
 # --- Importando seus módulos personalizados ---
 from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_audio, ler_usuarios_supabase, registrar_novo_usuario
@@ -63,7 +64,6 @@ if authentication_status:
         st.session_state.sensor_iot = {"umid": 0.0}
     if "ai_results" not in st.session_state:
         st.session_state.ai_results = None
-    # Novo: Controle de quantidade de amostras na tela (começa com 4)
     if "num_amostras" not in st.session_state:
         st.session_state.num_amostras = 4
 
@@ -88,12 +88,11 @@ if authentication_status:
             st.info("Você ainda não possui coletas registradas no Supabase.")
 
     # ------------------------------------------
-    # PÁGINA: NOVA COLETA (AGORA DINÂMICA)
+    # PÁGINA: NOVA COLETA
     # ------------------------------------------
     elif pagina == "Nova Coleta de Dados":
         st.title("🌱 Nova Amostragem Múltipla")
         
-        # Dados Gerais do Lote
         with st.container(border=True):
             st.markdown("#### 📍 Dados Gerais do Lote")
             c1, c2, c3 = st.columns(3)
@@ -104,7 +103,6 @@ if authentication_status:
             with c3:
                 lon = st.number_input("Longitude Base", value=-46.98, format="%.6f")
 
-        # Clima e Nuvem IoT
         col_cl, col_so = st.columns(2)
         with col_cl:
             with st.container(border=True):
@@ -142,48 +140,52 @@ if authentication_status:
                 else:
                     st.warning("Você precisa ter pelo menos 1 amostra.")
 
-        # Lista para guardar os dados preenchidos
         dados_amostras = []
-        
-        # Gera os formulários com base na quantidade escolhida
         for i in range(st.session_state.num_amostras):
             with st.expander(f"Amostra {i+1}", expanded=True):
                 c_nome, c_umid = st.columns([2, 1])
                 with c_nome:
                     nome = st.text_input("Identificação do Pé/Ponto", placeholder=f"Ex: Quadra 4 - Pé {i+1}", key=f"nome_{i}")
                 with c_umid:
-                    # Puxa o valor do sensor global por padrão, mas permite você alterar
                     umid = st.number_input("Umidade do Solo (%)", value=float(st.session_state.sensor_iot.get("umid", 0)), key=f"umid_{i}")
-                
-                # Guarda os dados dessa amostra num dicionário temporário
                 dados_amostras.append({"planta": nome, "umid": umid})
 
         st.divider()
 
-        # --- UPLOAD E IA (AGORA COM .TIF) ---
+        # --- UPLOAD E IA (COM NORMALIZAÇÃO DE TIF AGRÍCOLA) ---
         with st.container(border=True):
             st.subheader("🧠 Análise Geral por IA (Lote)")
-            # Adicionado o .tif e .tiff
             fotos = st.file_uploader("Fotos do Lote/Folhas", type=["jpg", "png", "tif", "tiff"], accept_multiple_files=True)
             
             if fotos and st.button("Analisar com Gemini"):
-                with st.spinner("Processando imagens..."):
+                with st.spinner("Lendo metadados e processando imagens na nuvem..."):
                     fotos_prontas = []
                     for foto in fotos:
-                        # Se for TIF, converte para JPG na memória antes de mandar pra IA
                         if foto.name.lower().endswith(('.tif', '.tiff')):
+                            # 1. Abre o TIF pesado
                             img = Image.open(foto)
+                            # 2. Transforma numa matriz matemática
+                            img_array = np.array(img)
+                            
+                            # 3. Se for imagem agrícola de 16-bits ou Float, normalizamos para a IA conseguir "enxergar"
+                            if img_array.dtype == np.uint16 or img_array.dtype == np.float32 or img_array.dtype == np.float64:
+                                min_val = np.min(img_array)
+                                max_val = np.max(img_array)
+                                if max_val > min_val: # Evita divisão por zero se a imagem for sólida
+                                    img_array = (img_array - min_val) / (max_val - min_val) * 255.0
+                                img_array = img_array.astype(np.uint8)
+                                img = Image.fromarray(img_array)
+                            
+                            # 4. Converte para RGB e salva como JPG na memória
                             img = img.convert("RGB")
                             byte_io = io.BytesIO()
-                            img.save(byte_io, format="JPEG")
-                            # Simula um arquivo JPG para a sua função de IA
+                            img.save(byte_io, format="JPEG", quality=95)
                             byte_io.name = "imagem_convertida.jpg"
                             byte_io.seek(0)
                             fotos_prontas.append(byte_io)
                         else:
                             fotos_prontas.append(foto)
                             
-                    # Manda as fotos (convertidas ou não) para o Gemini
                     st.session_state.ai_results = analisar_imagem_gemini(fotos_prontas, google_key)
                 st.success("Análise Finalizada!")
             
@@ -201,7 +203,7 @@ if authentication_status:
         if st.button("💾 FINALIZAR E SALVAR TODAS AS AMOSTRAS", use_container_width=True, type="primary"):
             amostras_salvas = 0
             for amostra in dados_amostras:
-                if amostra["planta"].strip() != "": # Só salva se você deu um nome para a amostra
+                if amostra["planta"].strip() != "":
                     dados_para_salvar = {
                         "dono": username, 
                         "data": dt,
@@ -212,7 +214,7 @@ if authentication_status:
                         "clima_externo_temp": st.session_state.clima_atual['temp'],
                         "clima_externo_umid": st.session_state.clima_atual['umid'],
                         "clima_desc": st.session_state.clima_atual['desc'],
-                        "sensor_local_umid": amostra["umid"], # Pega a umidade específica daquela amostra
+                        "sensor_local_umid": amostra["umid"],
                         "nota_geral": 10,
                         "ai_analise_json": json.dumps(st.session_state.ai_results) if st.session_state.ai_results else ""
                     }
@@ -290,4 +292,3 @@ elif authentication_status == None:
                         st.success("Conta criada com sucesso no Supabase! Recarregando a página...")
                         time.sleep(2)
                         st.rerun()
-
