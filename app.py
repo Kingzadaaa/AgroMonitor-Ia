@@ -165,4 +165,120 @@ if authentication_status:
                         # Se for TIF, converte para JPG na memória antes de mandar pra IA
                         if foto.name.lower().endswith(('.tif', '.tiff')):
                             img = Image.open(foto)
-                            img = img.convert("
+                            img = img.convert("RGB")
+                            byte_io = io.BytesIO()
+                            img.save(byte_io, format="JPEG")
+                            # Simula um arquivo JPG para a sua função de IA
+                            byte_io.name = "imagem_convertida.jpg"
+                            byte_io.seek(0)
+                            fotos_prontas.append(byte_io)
+                        else:
+                            fotos_prontas.append(foto)
+                            
+                    # Manda as fotos (convertidas ou não) para o Gemini
+                    st.session_state.ai_results = analisar_imagem_gemini(fotos_prontas, google_key)
+                st.success("Análise Finalizada!")
+            
+            if st.session_state.ai_results:
+                st.markdown("#### 📋 Diagnóstico da IA:")
+                if isinstance(st.session_state.ai_results, dict):
+                    for chave, valor in st.session_state.ai_results.items():
+                        st.write(f"**{chave.title()}:** {valor}")
+                else:
+                    st.write(st.session_state.ai_results)
+
+        st.divider()
+        
+        # --- SALVAR TODAS AS AMOSTRAS DE UMA VEZ ---
+        if st.button("💾 FINALIZAR E SALVAR TODAS AS AMOSTRAS", use_container_width=True, type="primary"):
+            amostras_salvas = 0
+            for amostra in dados_amostras:
+                if amostra["planta"].strip() != "": # Só salva se você deu um nome para a amostra
+                    dados_para_salvar = {
+                        "dono": username, 
+                        "data": dt,
+                        "hora": datetime.now().strftime("%H:%M"),
+                        "planta": amostra["planta"],
+                        "latitude": lat,
+                        "longitude": lon,
+                        "clima_externo_temp": st.session_state.clima_atual['temp'],
+                        "clima_externo_umid": st.session_state.clima_atual['umid'],
+                        "clima_desc": st.session_state.clima_atual['desc'],
+                        "sensor_local_umid": amostra["umid"], # Pega a umidade específica daquela amostra
+                        "nota_geral": 10,
+                        "ai_analise_json": json.dumps(st.session_state.ai_results) if st.session_state.ai_results else ""
+                    }
+                    salvar_no_banco(dados_para_salvar)
+                    amostras_salvas += 1
+            
+            if amostras_salvas > 0:
+                st.success(f"Sucesso! {amostras_salvas} amostra(s) registrada(s) no Supabase!")
+                st.session_state.ai_results = None 
+            else:
+                st.warning("Preencha a 'Identificação' de pelo menos uma amostra para salvar.")
+
+    # ------------------------------------------
+    # PÁGINA: HISTÓRICO
+    # ------------------------------------------
+    elif pagina == "Histórico e Mapas":
+        st.title("📂 Meu Histórico")
+        df = ler_banco(username) 
+        
+        if not df.empty:
+            with st.expander("🔍 Filtros de Busca", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    lista_plantas = df['planta'].unique().tolist()
+                    lista_plantas.insert(0, "Todas as Plantas")
+                    filtro_planta = st.selectbox("Filtrar por Identificação", lista_plantas)
+                with col2:
+                    filtro_data = st.date_input("Filtrar por Data", value=None)
+
+            df_filtrado = df.copy()
+            if filtro_planta != "Todas as Plantas":
+                df_filtrado = df_filtrado[df_filtrado['planta'] == filtro_planta]
+            
+            if filtro_data:
+                df_filtrado['data'] = pd.to_datetime(df_filtrado['data']).dt.date
+                df_filtrado = df_filtrado[df_filtrado['data'] == filtro_data]
+
+            st.dataframe(df_filtrado, use_container_width=True)
+            
+            st.divider()
+            id_del = st.number_input("ID para excluir", min_value=0)
+            if st.button("Excluir Registro permanentemente"):
+                excluir_registro(id_del, username)
+                st.rerun()
+        else:
+            st.info("Nenhum dado encontrado.")
+
+# ==========================================
+# 3. TRATAMENTO DE ERROS E CADASTRO SEGURO
+# ==========================================
+elif authentication_status == False:
+    st.error("Usuário ou senha incorretos.")
+    
+elif authentication_status == None:
+    st.warning("AgroMonitor AI: Por favor, faça login para acessar seus dados.")
+    
+    st.divider()
+    with st.expander("Não tem uma conta? Cadastre-se aqui"):
+        with st.form("form_cadastro"):
+            novo_nome = st.text_input("Nome Completo")
+            novo_user = st.text_input("Nome de Usuário (login)").lower()
+            nova_senha = st.text_input("Senha", type="password")
+            btn_cadastrar = st.form_submit_button("Criar Conta Permanente")
+            
+            if btn_cadastrar:
+                if novo_user in config_usuarios["usernames"]:
+                    st.error("Este nome de usuário já existe! Escolha outro.")
+                elif len(novo_user) < 3 or len(nova_senha) < 3:
+                    st.warning("O usuário e a senha devem ter pelo menos 3 caracteres.")
+                else:
+                    senha_hash = stauth.Hasher([nova_senha]).generate()[0]
+                    sucesso = registrar_novo_usuario(novo_user, novo_nome, senha_hash)
+                    
+                    if sucesso:
+                        st.success("Conta criada com sucesso no Supabase! Recarregando a página...")
+                        time.sleep(2)
+                        st.rerun()
