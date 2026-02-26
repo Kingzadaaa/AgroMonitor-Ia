@@ -7,13 +7,12 @@ import pandas as pd
 import time
 from PIL import Image 
 import io
-import numpy as np # <--- NOVA IMPORTAÇÃO: O "cérebro" matemático para ler TIFs de drones
+import numpy as np 
 
 # --- Importando seus módulos personalizados ---
 from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_audio, ler_usuarios_supabase, registrar_novo_usuario
 from hardware import get_weather_data, listar_portas_com, ler_sensor_esp, ler_sensor_wifi
-from ia_core import analisar_imagem_gemini, preparar_imagem_para_ia
-from exportacao import gerar_kml_google_earth, gerar_laudo_pdf
+from ia_core import analisar_imagem_gemini
 from streamlit_mic_recorder import mic_recorder
 
 # ==========================================
@@ -43,10 +42,10 @@ if authentication_status:
     authenticator.logout("Sair do Sistema", "sidebar")
     
     st.sidebar.divider()
-    pagina = st.sidebar.radio("Navegação", ["Dashboard Analítico", "Nova Coleta de Dados", "Histórico e Mapas", "Ajuda"])
+    pagina = st.sidebar.radio("Navegação", ["Dashboard Analítico", "Nova Coleta de Dados", "Histórico e Mapas", "Manual e Ajuda"])
     st.sidebar.divider()
     
-    # --- BUSCA AUTOMÁTICA DE CHAVES (SECRETS) ---
+    # --- BUSCA AUTOMÁTICA DE CHAVES ---
     try:
         default_weather = st.secrets["OPENWEATHER_KEY"]
         default_google = st.secrets["GEMINI_API_KEY"]
@@ -57,7 +56,7 @@ if authentication_status:
     weather_key = st.sidebar.text_input("OpenWeather Key", type="password", value=default_weather)
     google_key = st.sidebar.text_input("Google Gemini Key", type="password", value=default_google)
     
-    # --- Variáveis de Memória (Session State) ---
+    # --- Variáveis de Memória ---
     if "clima_atual" not in st.session_state:
         st.session_state.clima_atual = {"temp": 0.0, "umid": 0.0, "desc": "-"}
     if "sensor_iot" not in st.session_state:
@@ -114,7 +113,7 @@ if authentication_status:
 
         with col_so:
             with st.container(border=True):
-                st.subheader("☁️ Sensor Wi-Fi Global")
+                st.subheader("☁️ Sensor Wi-Fi (Lote Geral)")
                 if st.button("Puxar Dado do Servidor", type="primary", use_container_width=True):
                     d_wifi, msg = ler_sensor_wifi(username)
                     if d_wifi:
@@ -122,61 +121,76 @@ if authentication_status:
                         st.success("Sincronizado!")
                     else:
                         st.error(msg)
-                st.write(f"Última leitura global: {st.session_state.sensor_iot.get('umid', 0)} %")
+                
+                # Permite edição manual caso queira ajustar a umidade puxada
+                umid_global = st.number_input("Umidade Média do Solo (%)", value=float(st.session_state.sensor_iot.get("umid", 0)))
 
         st.divider()
 
         # --- SISTEMA DINÂMICO DE AMOSTRAS ---
-        st.markdown("### 🌿 Registro de Amostras")
+        st.markdown("### 🌿 Registro de Amostras (Pés)")
         
         col_add, col_rem, _ = st.columns([1, 1, 2])
         with col_add:
-            if st.button("➕ Incluir Amostra", use_container_width=True):
+            if st.button("➕ Incluir Pé", use_container_width=True):
                 st.session_state.num_amostras += 1
         with col_rem:
-            if st.button("➖ Excluir Amostra", use_container_width=True):
+            if st.button("➖ Excluir Pé", use_container_width=True):
                 if st.session_state.num_amostras > 1:
                     st.session_state.num_amostras -= 1
                 else:
                     st.warning("Você precisa ter pelo menos 1 amostra.")
 
         dados_amostras = []
+        # Exibe os campos de texto de acordo com a quantidade de amostras
+        cols_amostras = st.columns(2)
         for i in range(st.session_state.num_amostras):
-            with st.expander(f"Amostra {i+1}", expanded=True):
-                c_nome, c_umid = st.columns([2, 1])
-                with c_nome:
-                    nome = st.text_input("Identificação do Pé/Ponto", placeholder=f"Ex: Quadra 4 - Pé {i+1}", key=f"nome_{i}")
-                with c_umid:
-                    umid = st.number_input("Umidade do Solo (%)", value=float(st.session_state.sensor_iot.get("umid", 0)), key=f"umid_{i}")
-                dados_amostras.append({"planta": nome, "umid": umid})
+            col_idx = i % 2
+            with cols_amostras[col_idx]:
+                nome = st.text_input(f"Identificação da Amostra {i+1}", placeholder=f"Ex: Ponto {i+1}", key=f"nome_{i}")
+                dados_amostras.append(nome)
 
         st.divider()
+        
+        # --- AVALIAÇÃO MANUAL MULTIESPECTRAL ---
+        with st.expander("📷 Câmera Multiespectral - Notas Manuais (Opcional)"):
+            st.markdown("""
+            **Guia Rápido das 6 Bandas:**
+            * **Azul (Blue):** Ótima para ver absorção de clorofila inicial e contagem de plantas.
+            * **Verde (Green):** Reflete a saúde visual; onde a planta é mais verde, está mais vigorosa.
+            * **Vermelho (Red):** Essencial para diferenciar solo nú de vegetação viva (absorve muita luz).
+            * **Red Edge (Borda Vermelha):** A mais sensível ao estresse inicial; detecta problemas antes do olho humano.
+            * **NIR (Infravermelho Próximo):** Refletida fortemente por plantas saudáveis; base para o cálculo de NDVI.
+            * **Termal (Thermal):** Mede a temperatura da folha; excelente para detectar estresse hídrico.
+            """)
+            st.divider()
+            
+            c_banda1, c_banda2 = st.columns(2)
+            with c_banda1:
+                st.slider("Nota Visual: Azul/Verde/Vermelho (RGB)", 0, 10, 10)
+                st.slider("Nota Visual: Borda Vermelha (Red Edge)", 0, 10, 10)
+            with c_banda2:
+                st.slider("Nota Visual: Infravermelho Próximo (NIR)", 0, 10, 10)
+                st.slider("Nota Visual: Termal (Água)", 0, 10, 10)
 
-        # --- UPLOAD E IA (COM NORMALIZAÇÃO DE TIF AGRÍCOLA) ---
+        # --- UPLOAD E IA (COM INTERFACE ESTÉTICA) ---
         with st.container(border=True):
-            st.subheader("🧠 Análise Geral por IA (Lote)")
+            st.subheader("🧠 Análise Geral por IA (Gemini Vision)")
             fotos = st.file_uploader("Fotos do Lote/Folhas", type=["jpg", "png", "tif", "tiff"], accept_multiple_files=True)
             
-            if fotos and st.button("Analisar com Gemini"):
-                with st.spinner("Lendo metadados e processando imagens na nuvem..."):
+            if fotos and st.button("Analisar Imagens", type="secondary"):
+                with st.spinner("Processando arquivos na nuvem..."):
                     fotos_prontas = []
                     for foto in fotos:
                         if foto.name.lower().endswith(('.tif', '.tiff')):
-                            # 1. Abre o TIF pesado
                             img = Image.open(foto)
-                            # 2. Transforma numa matriz matemática
                             img_array = np.array(img)
-                            
-                            # 3. Se for imagem agrícola de 16-bits ou Float, normalizamos para a IA conseguir "enxergar"
-                            if img_array.dtype == np.uint16 or img_array.dtype == np.float32 or img_array.dtype == np.float64:
-                                min_val = np.min(img_array)
-                                max_val = np.max(img_array)
-                                if max_val > min_val: # Evita divisão por zero se a imagem for sólida
+                            if img_array.dtype in [np.uint16, np.float32, np.float64]:
+                                min_val, max_val = np.min(img_array), np.max(img_array)
+                                if max_val > min_val:
                                     img_array = (img_array - min_val) / (max_val - min_val) * 255.0
                                 img_array = img_array.astype(np.uint8)
                                 img = Image.fromarray(img_array)
-                            
-                            # 4. Converte para RGB e salva como JPG na memória
                             img = img.convert("RGB")
                             byte_io = io.BytesIO()
                             img.save(byte_io, format="JPEG", quality=95)
@@ -187,42 +201,70 @@ if authentication_status:
                             fotos_prontas.append(foto)
                             
                     st.session_state.ai_results = analisar_imagem_gemini(fotos_prontas, google_key)
-                st.success("Análise Finalizada!")
-            
+                
+            # Exibição bonita dos resultados da IA
             if st.session_state.ai_results:
-                st.markdown("#### 📋 Diagnóstico da IA:")
-                if isinstance(st.session_state.ai_results, dict):
-                    for chave, valor in st.session_state.ai_results.items():
-                        st.write(f"**{chave.title()}:** {valor}")
+                st.success("Análise Finalizada com Sucesso!")
+                
+                # Verifica se a IA retornou uma lista de dicionários (como no seu print)
+                if isinstance(st.session_state.ai_results, list):
+                    for idx, resultado in enumerate(st.session_state.ai_results):
+                        with st.container(border=True):
+                            st.markdown(f"#### 📄 Arquivo: {resultado.get('arquivo', f'Imagem {idx+1}')}")
+                            
+                            c_info1, c_info2 = st.columns(2)
+                            c_info1.metric("Banda Identificada", resultado.get('banda_identificada', 'N/A'))
+                            c_info2.metric("Nota de Saúde (IA)", f"{resultado.get('nota_saude', '?')} / 10")
+                            
+                            st.info(f"**Justificativa Óptica:** {resultado.get('justificativa_banda', '')}")
+                            st.write(f"**Diagnóstico Clínico:** {resultado.get('diagnostico', '')}")
+                            
+                            if resultado.get('praga_detectada'):
+                                st.error(f"⚠️ **Alerta:** {resultado.get('praga_detectada')}")
                 else:
+                    # Caso a IA retorne apenas um texto simples
                     st.write(st.session_state.ai_results)
+
+        # --- OBSERVAÇÕES E ÁUDIO ---
+        st.subheader("📋 Laudo Técnico Final")
+        col_notas, col_audio = st.columns([2, 1])
+        with col_notas:
+            nota_final = st.slider("Nota Geral Final do Lote", 0.0, 10.0, 10.0, 0.5)
+            obs_texto = st.text_area("Observações de Campo", placeholder="Ex: Presença de ferrugem no talhão norte...")
+        with col_audio:
+            st.write("Gravação de Áudio")
+            audio_gravado = mic_recorder(start_prompt="🔴 Gravar", stop_prompt="⏹️ Parar", key='gravador')
+            if audio_gravado:
+                st.audio(audio_gravado['bytes'])
+                st.success("Áudio anexado!")
 
         st.divider()
         
-        # --- SALVAR TODAS AS AMOSTRAS DE UMA VEZ ---
+        # --- SALVAR TODAS AS AMOSTRAS ---
         if st.button("💾 FINALIZAR E SALVAR TODAS AS AMOSTRAS", use_container_width=True, type="primary"):
             amostras_salvas = 0
-            for amostra in dados_amostras:
-                if amostra["planta"].strip() != "":
+            for nome_amostra in dados_amostras:
+                if nome_amostra.strip() != "":
                     dados_para_salvar = {
                         "dono": username, 
                         "data": dt,
                         "hora": datetime.now().strftime("%H:%M"),
-                        "planta": amostra["planta"],
+                        "planta": nome_amostra,
                         "latitude": lat,
                         "longitude": lon,
                         "clima_externo_temp": st.session_state.clima_atual['temp'],
                         "clima_externo_umid": st.session_state.clima_atual['umid'],
                         "clima_desc": st.session_state.clima_atual['desc'],
-                        "sensor_local_umid": amostra["umid"],
-                        "nota_geral": 10,
+                        "sensor_local_umid": umid_global, # Pega a umidade do lote
+                        "nota_geral": nota_final,
+                        # Guarda as análises em JSON caso precise auditar depois
                         "ai_analise_json": json.dumps(st.session_state.ai_results) if st.session_state.ai_results else ""
                     }
                     salvar_no_banco(dados_para_salvar)
                     amostras_salvas += 1
             
             if amostras_salvas > 0:
-                st.success(f"Sucesso! {amostras_salvas} amostra(s) registrada(s) no Supabase!")
+                st.success(f"Sucesso! {amostras_salvas} amostra(s) registrada(s) no histórico!")
                 st.session_state.ai_results = None 
             else:
                 st.warning("Preencha a 'Identificação' de pelo menos uma amostra para salvar.")
@@ -261,6 +303,31 @@ if authentication_status:
                 st.rerun()
         else:
             st.info("Nenhum dado encontrado.")
+
+    # ------------------------------------------
+    # PÁGINA: AJUDA E MANUAL
+    # ------------------------------------------
+    elif pagina == "Manual e Ajuda":
+        st.title("📖 Manual do AgroMonitor AI")
+        st.markdown("""
+        Bem-vindo ao sistema de monitoramento inteligente! Abaixo você encontra as instruções de como utilizar os recursos avançados.
+
+        ### 1. Sistema de Amostras
+        Na aba **Nova Coleta**, você pode registrar múltiplas amostras de uma única vez. 
+        * Defina a quantidade de pés/pontos que você está avaliando usando os botões `+` e `-`.
+        * A umidade do solo lida pelo **Sensor Wi-Fi** servirá como base para todo o lote.
+
+        ### 2. Imagens Multiespectrais (.TIF e .JPG)
+        O sistema aceita imagens brutas de drones e câmeras agronômicas.
+        * **NDVI e Red Edge:** Ao fazer upload, a IA tentará identificar qual filtro/banda foi usado na lente da câmera.
+        * **Dica:** Fotos em .TIF pesam muito; o sistema as normaliza automaticamente para a análise da Inteligência Artificial.
+
+        ### 3. Sincronização IoT
+        Certifique-se de que o seu **ESP8266/ESP32** esteja ligado e conectado ao Wi-Fi. Ele envia os dados para o servidor global (PythonAnywhere), e o aplicativo puxa essa informação com apenas um clique.
+
+        ### 4. Laudo em Áudio
+        Se você estiver no meio do cafezal com as mãos sujas de terra, use o botão **Gravar** no final da página para registrar suas observações faladas.
+        """)
 
 # ==========================================
 # 3. TRATAMENTO DE ERROS E CADASTRO SEGURO
