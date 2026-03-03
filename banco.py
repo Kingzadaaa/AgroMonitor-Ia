@@ -2,7 +2,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import streamlit as st
 
-# 1. Configuração da Conexão com Supabase (Link corrigido para nuvem)
+# 1. Configuração da Conexão com Supabase
 DB_URL = "postgresql+psycopg2://postgres.bcptmdptgqchzjhfngio:Projetoepamig2026@aws-1-us-east-2.pooler.supabase.com:6543/postgres"
 engine = create_engine(DB_URL)
 
@@ -11,8 +11,28 @@ engine = create_engine(DB_URL)
 # ==========================================
 def salvar_no_banco(dados):
     try:
+        # 1. Garante que a tabela seja criada COM a coluna ID de auto-incremento
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS coletas_cafe (
+                    id SERIAL PRIMARY KEY,
+                    dono TEXT,
+                    data TEXT,
+                    hora TEXT,
+                    planta TEXT,
+                    latitude FLOAT,
+                    longitude FLOAT,
+                    clima_externo_temp FLOAT,
+                    clima_externo_umid FLOAT,
+                    clima_desc TEXT,
+                    sensor_local_umid FLOAT,
+                    nota_geral FLOAT,
+                    ai_analise_json TEXT
+                )
+            """))
+            
+        # 2. Salva os dados anexando na tabela existente
         df = pd.DataFrame([dados])
-        # Salva os dados na tabela 'coletas_cafe' (cria automaticamente se não existir)
         df.to_sql('coletas_cafe', engine, if_exists='append', index=False)
         return True
     except Exception as e:
@@ -21,18 +41,15 @@ def salvar_no_banco(dados):
 
 def ler_banco(username):
     try:
-        # Lê apenas os dados do usuário que está logado no momento
         query = f"SELECT * FROM coletas_cafe WHERE dono = '{username}'"
         df = pd.read_sql(query, engine)
         return df
     except Exception:
-        # Retorna um DataFrame vazio se a tabela ainda não existir
         return pd.DataFrame()
 
 def excluir_registro(id_registro, username):
     try:
         with engine.begin() as conn:
-            # Exclui pelo ID e garante que o dono é quem está pedindo a exclusão
             conn.execute(text("DELETE FROM coletas_cafe WHERE id = :id AND dono = :dono"), 
                          {"id": id_registro, "dono": username})
         return True
@@ -41,7 +58,6 @@ def excluir_registro(id_registro, username):
         return False
 
 def salvar_bytes_audio(audio_bytes):
-    # Função mantida vazia apenas para não quebrar a importação do app.py
     pass
 
 # ==========================================
@@ -50,7 +66,6 @@ def salvar_bytes_audio(audio_bytes):
 def ler_usuarios_supabase():
     try:
         with engine.begin() as conn:
-            # 1. Cria a tabela de usuários automaticamente se ela não existir
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS usuarios_login (
                     username TEXT PRIMARY KEY,
@@ -59,7 +74,6 @@ def ler_usuarios_supabase():
                 )
             """))
             
-            # 2. Busca todos os usuários cadastrados no Supabase
             result = conn.execute(text("SELECT username, name, password FROM usuarios_login"))
             usuarios = {"usernames": {}}
             for row in result:
