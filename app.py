@@ -52,9 +52,6 @@ if authentication_status:
     
     # --- BUSCA AUTOMÁTICA DE CHAVES ---
     try:
-        default_weather = st.secrets["OPENWEATHER_KEY"]
-        default_google = st.secrets["GEMINI_API_KEY"]
-    except:
         default_weather = ""
         default_google = ""
         
@@ -423,3 +420,4 @@ elif authentication_status == None:
                         st.success("Conta criada! Pode fazer o login.")
                         time.sleep(2)
                         st.rerun()
+
