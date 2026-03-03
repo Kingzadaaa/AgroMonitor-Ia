@@ -3,11 +3,11 @@ import streamlit_authenticator as stauth
 from datetime import date, datetime
 import json
 import os
-import pandas as pd 
+import pandas as pd
 import time
-from PIL import Image 
+from PIL import Image
 import io
-import numpy as np 
+import numpy as np
 
 # --- Importando seus módulos personalizados ---
 from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_audio, ler_usuarios_supabase, registrar_novo_usuario
@@ -31,7 +31,7 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=30
 )
 
-st.write("#") 
+st.write("#")
 name, authentication_status, username = authenticator.login(location='main')
 
 # ==========================================
@@ -50,13 +50,9 @@ if authentication_status:
     ])
     st.sidebar.divider()
     
-    # --- BUSCA AUTOMÁTICA DE CHAVES ---
-    try:
-        default_weather = ""
-        default_google = ""
-        
-    weather_key = st.sidebar.text_input("OpenWeather Key", type="password", value=default_weather)
-    google_key = st.sidebar.text_input("Google Gemini Key", type="password", value=default_google)
+    # --- ENTRADA MANUAL DE CHAVES ---
+    weather_key = st.sidebar.text_input("OpenWeather Key", type="password")
+    google_key = st.sidebar.text_input("Google Gemini Key", type="password")
     
     # --- Variáveis de Memória (Estado do App) ---
     if "clima_atual" not in st.session_state:
@@ -73,7 +69,6 @@ if authentication_status:
                 "nome": "", 
                 "umid": 0.0, 
                 "saude": 10.0,
-                # Trocado 'thermal' por 'pan'
                 "notas_bandas": {"blue": 10, "green": 10, "red": 10, "rededge": 10, "nir": 10, "pan": 10}
             }
         }
@@ -420,4 +415,3 @@ elif authentication_status == None:
                         st.success("Conta criada! Pode fazer o login.")
                         time.sleep(2)
                         st.rerun()
-
