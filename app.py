@@ -14,6 +14,7 @@ from banco import salvar_no_banco, ler_banco, excluir_registro, salvar_bytes_aud
 from hardware import get_weather_data, listar_portas_com, ler_sensor_esp, ler_sensor_wifi
 from ia_core import analisar_imagem_gemini
 from streamlit_mic_recorder import mic_recorder
+from fpdf import FPDF
 
 # ==========================================
 # 1. SISTEMA DE AUTENTICAÇÃO
@@ -32,7 +33,13 @@ authenticator = stauth.Authenticate(
 )
 
 st.write("#")
-name, authentication_status, username = authenticator.login(location='main')
+# Mostra a tela de login
+authenticator.login(location='main')
+
+# Puxa as variáveis direto da memória da nova versão do Authenticator
+name = st.session_state.get("name")
+authentication_status = st.session_state.get("authentication_status")
+username = st.session_state.get("username")
 
 # ==========================================
 # 2. ÁREA RESTRITA
@@ -80,21 +87,32 @@ if authentication_status:
         st.title(f"📊 Painel de Controle: {name}")
         df_dash = ler_banco(username) 
         
-        if not df_dash.empty:
-            df_dash.columns = [c.lower() for c in df_dash.columns] # Evitar KeyError
+        if not df_dash.empty and len(df_dash) > 0 and df_dash['sensor_local_umid'].count() > 0:
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total de Amostras", len(df_dash))
             
-            if 'nota_geral' in df_dash.columns: c2.metric("Saúde Média", f"{round(df_dash['nota_geral'].mean(), 1)} / 10")
-            if 'sensor_local_umid' in df_dash.columns: c3.metric("Umidade Solo Média", f"{round(df_dash['sensor_local_umid'].mean(), 1)} %")
-            if 'clima_externo_temp' in df_dash.columns: c4.metric("Temp. Média Ar", f"{round(df_dash['clima_externo_temp'].mean(), 1)} °C")
+            # Tratamento para evitar 'nan'
+            saude_med = df_dash['nota_geral'].mean()
+            umid_med = df_dash['sensor_local_umid'].mean()
+            temp_med = df_dash['clima_externo_temp'].mean()
+            
+            saude_med = 0.0 if pd.isna(saude_med) else round(saude_med, 1)
+            umid_med = 0.0 if pd.isna(umid_med) else round(umid_med, 1)
+            temp_med = 0.0 if pd.isna(temp_med) else round(temp_med, 1)
+
+            c1.metric("Total de Amostras", len(df_dash))
+            c2.metric("Saúde Média", f"{saude_med} / 10")
+            c3.metric("Umidade Solo Média", f"{umid_med} %")
+            c4.metric("Temp. Média Ar", f"{temp_med} °C")
             
             st.divider()
             st.subheader("📍 Mapa Local de Coletas")
-            if 'latitude' in df_dash.columns and 'longitude' in df_dash.columns:
-                st.map(df_dash[['latitude', 'longitude']], zoom=14, color="#00ff00")
+            df_mapa = df_dash.dropna(subset=['latitude', 'longitude'])
+            if not df_mapa.empty:
+                st.map(df_mapa[['latitude', 'longitude']], zoom=14, color="#00ff00")
+            else:
+                st.warning("Nenhuma coordenada válida para exibir no mapa.")
         else:
-            st.info("Você ainda não possui coletas registradas.")
+            st.info("Você ainda não possui coletas registradas para gerar o painel.")
 
     # ------------------------------------------
     # PÁGINA: NOVA COLETA
@@ -186,18 +204,29 @@ if authentication_status:
                 b1, b2, b3 = st.columns(3)
                 with b1:
                     st.markdown("**🟦 Azul (Blue)**")
+                    st.caption("Ajuda a diferenciar o que é planta do que é terra ou sombra.")
                     dados_atuais["notas_bandas"]["blue"] = st.slider("Nota Azul", 0, 10, int(dados_atuais["notas_bandas"]["blue"]), key=f"b_{amostra_atual}")
+                    
                     st.markdown("**🟥 Vermelho (Red)**")
+                    st.caption("Mostra onde a planta está absorvendo luz para fotossíntese.")
                     dados_atuais["notas_bandas"]["red"] = st.slider("Nota Vermelha", 0, 10, int(dados_atuais["notas_bandas"]["red"]), key=f"r_{amostra_atual}")
+                    
                 with b2:
                     st.markdown("**🟩 Verde (Green)**")
+                    st.caption("O verde visível. Reflete o vigor e a cor que nossos olhos veem.")
                     dados_atuais["notas_bandas"]["green"] = st.slider("Nota Verde", 0, 10, int(dados_atuais["notas_bandas"]["green"]), key=f"g_{amostra_atual}")
+                    
                     st.markdown("**🟪 Red Edge (Borda Vermelha)**")
+                    st.caption("A lente dedo-duro. Detecta problemas de saúde antes da folha amarelar.")
                     dados_atuais["notas_bandas"]["rededge"] = st.slider("Nota Red Edge", 0, 10, int(dados_atuais["notas_bandas"]["rededge"]), key=f"re_{amostra_atual}")
+                    
                 with b3:
                     st.markdown("**🟫 NIR (Infravermelho Próx.)**")
+                    st.caption("Mostra a saúde interna da folha. Brilha muito quando a planta está sadia.")
                     dados_atuais["notas_bandas"]["nir"] = st.slider("Nota NIR", 0, 10, int(dados_atuais["notas_bandas"]["nir"]), key=f"n_{amostra_atual}")
+                    
                     st.markdown("**📸 Pancromática (Lente Maior)**")
+                    st.caption("Captura a imagem geral em altíssima resolução para dar nitidez aos mapas.")
                     dados_atuais["notas_bandas"]["pan"] = st.slider("Nota Pancromática", 0, 10, int(dados_atuais["notas_bandas"]["pan"]), key=f"p_{amostra_atual}")
 
         st.divider()
@@ -231,7 +260,7 @@ if authentication_status:
                             fotos_prontas.append(foto)
                             
                     st.session_state.ai_results = analisar_imagem_gemini(fotos_prontas, google_key)
-            
+                
             if st.session_state.ai_results:
                 st.success("Análise Finalizada!")
                 if isinstance(st.session_state.ai_results, list):
@@ -295,22 +324,15 @@ if authentication_status:
                 st.warning("Aviso: Preencha o campo 'Identificador' da amostra antes de salvar.")
 
     # ------------------------------------------
-    # PÁGINA: HISTÓRICO
+    # PÁGINA: HISTÓRICO E MAPAS
     # ------------------------------------------
     elif pagina == "Histórico e Mapas":
-        st.title("📂 Meu Histórico")
+        st.title("📂 Meu Histórico de Coletas")
         df = ler_banco(username) 
         
         if not df.empty:
-            df.columns = [c.lower() for c in df.columns]
-            
-            # ---> AQUI ESTÃO AS SUAS LINHAS DE TESTE <---
-            st.info("🛠️ **MENSAGEM DE DEPURAÇÃO PARA ENCONTRAR O ERRO DE ID:**")
-            st.write("**Colunas reais que o banco enviou:**", df.columns.tolist())
-            st.write("**Visualização dos dados brutos:**", df.head())
-            st.divider()
-
-            with st.expander("🔍 Filtros de Busca", expanded=True):
+            # --- FILTROS DE BUSCA ---
+            with st.expander("🔍 Filtrar Resultados", expanded=False):
                 col1, col2 = st.columns(2)
                 with col1:
                     lista_plantas = df['planta'].unique().tolist()
@@ -319,73 +341,163 @@ if authentication_status:
                 with col2:
                     filtro_data = st.date_input("Filtrar por Data", value=None)
 
+            # Aplicando os filtros
             df_filtrado = df.copy()
             if filtro_planta != "Todas as Plantas":
                 df_filtrado = df_filtrado[df_filtrado['planta'] == filtro_planta]
-            
             if filtro_data:
                 df_filtrado['data'] = pd.to_datetime(df_filtrado['data']).dt.date
                 df_filtrado = df_filtrado[df_filtrado['data'] == filtro_data]
 
-            st.dataframe(df_filtrado, use_container_width=True)
+            # --- TABELA LIMPA E ORGANIZADA ---
+            st.markdown("### 📊 Dados Registrados")
+            # Seleciona apenas as colunas amigáveis para o usuário ver
+            colunas_visiveis = ['id', 'data', 'hora', 'planta', 'nota_geral', 'sensor_local_umid', 'clima_externo_temp', 'clima_externo_umid']
+            # Filtra apenas se as colunas existirem no banco para evitar erros
+            colunas_existentes = [col for col in colunas_visiveis if col in df_filtrado.columns]
+            df_display = df_filtrado[colunas_existentes].copy()
+            
+            # Renomeia para ficar bonito na tela
+            renomes = {
+                'id': 'ID', 'data': 'Data', 'hora': 'Hora', 'planta': 'Identificador da Planta',
+                'nota_geral': 'Saúde (0-10)', 'sensor_local_umid': 'Umidade Solo (%)',
+                'clima_externo_temp': 'Temp. Ar (°C)', 'clima_externo_umid': 'Umidade Ar (%)'
+            }
+            df_display.rename(columns=renomes, inplace=True)
+            
+            # Mostra a tabela sem o índice lateral numérico (hide_index=True)
+            st.dataframe(df_display, hide_index=True, use_container_width=True)
+            
+            # Botão de Exportar CSV
+            csv = df_display.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Baixar Tabela em Excel (CSV)",
+                data=csv,
+                file_name=f"historico_agro_{date.today()}.csv",
+                mime="text/csv",
+                type="primary"
+            )
             
             st.divider()
             
             # --- ZONA DE PERIGO: EXCLUSÃO ---
-            st.markdown("### ⚠️ Gerenciamento de Dados")
-            c_del1, c_del2 = st.columns(2)
-            
-            with c_del1:
-                with st.container(border=True):
-                    st.write("**Apagar Apenas Uma Amostra**")
-                    id_del = st.number_input("ID da Amostra", min_value=0)
-                    if st.button("🗑️ Apagar ID"):
+            with st.expander("⚠️ Gerenciamento e Exclusão de Dados"):
+                c_del1, c_del2 = st.columns(2)
+                
+                with c_del1:
+                    st.markdown("**Apagar Apenas Uma Amostra**")
+                    id_del = st.number_input("Digite o ID da Amostra (veja na tabela)", min_value=0, step=1)
+                    if st.button("🗑️ Apagar ID Específico"):
                         excluir_registro(id_del, username)
+                        st.success(f"ID {id_del} apagado!")
+                        time.sleep(1)
                         st.rerun()
-                        
-            with c_del2:
-                with st.container(border=True):
-                    st.write("**Limpar Tudo**")
-                    confirmacao = st.checkbox("Sim, quero apagar todos os meus dados.")
+                            
+                with c_del2:
+                    st.markdown("**Limpar Todo o Histórico**")
+                    confirmacao = st.checkbox("Entendo que isso apagará todos os dados.")
                     if confirmacao:
-                        if st.button("🚨 EXCLUIR MEU HISTÓRICO COMPLETO", type="primary", use_container_width=True):
+                        if st.button("🚨 EXCLUIR TUDO", type="primary", use_container_width=True):
                             with st.spinner("Limpando banco de dados..."):
-                                if 'id' in df.columns:
-                                    for id_apagar in df['id'].tolist():
-                                        excluir_registro(id_apagar, username)
-                                    st.success("Tudo limpo!")
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("Erro: Coluna 'id' não encontrada no banco. Verifique a lista de colunas no topo da tela e ajuste a linha 365 do código `app.py`.")
+                                for id_apagar in df['id'].tolist():
+                                    excluir_registro(id_apagar, username)
+                            st.success("Tudo limpo!")
+                            time.sleep(1)
+                            st.rerun()
                     else:
-                        st.button("🚨 EXCLUIR MEU HISTÓRICO COMPLETO", disabled=True, use_container_width=True)
+                        st.button("🚨 EXCLUIR TUDO", disabled=True, use_container_width=True)
         else:
-            st.info("Nenhum dado salvo ainda.")
+            st.info("Você ainda não possui nenhum dado salvo no histórico.")
 
-    # ------------------------------------------
+   # ------------------------------------------
     # PÁGINA: AJUDA E MANUAL
     # ------------------------------------------
     elif pagina == "Manual Prático":
-        st.title("📖 Manual do Sistema")
+        st.title("📖 Manual Prático AgroMonitor")
+        st.markdown("Bem-vindo ao guia rápido de uso do seu sistema de monitoramento.")
         
-        with st.expander("📷 A Câmera de 6 Bandas", expanded=True):
-            st.write("""
-            Sua câmera multiespectral tem funções específicas em cada lente para ajudar no diagnóstico agrícola:
+        # --- FUNÇÃO QUE GERA O PDF ---
+        from fpdf import FPDF
+
+        def gerar_pdf_manual():
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 16)
+            pdf.cell(0, 10, txt="Manual Pratico AgroMonitor", ln=True, align='C')
+            pdf.ln(10)
             
-            * **Azul (Blue):** Bom para separar o que é planta do que é sombra ou terra no chão.
-            * **Verde (Green):** É a cor natural da planta. Ajuda a ver o vigor geral igual nossos olhos veem.
-            * **Vermelho (Red):** Mostra onde a planta está forte fazendo fotossíntese.
-            * **Red Edge (Borda Vermelha):** É o raio-x da saúde. Ela avisa que a planta está doente ou estressada muito antes da folha ficar amarela.
-            * **Infravermelho Próximo (NIR):** Reflete a saúde das células por dentro da folha. Brilha forte quando a planta está bem hidratada e sadia. É muito usada para gerar o mapa NDVI.
-            * **Pancromática (A Lente Maior):** Captura toda a luz de uma vez em altíssima resolução. O sistema usa essa imagem para dar "foco" e muita nitidez aos mapas gerados pelas outras lentes menores.
+            pdf.set_font("Arial", '', 12)
+            # Texto sem acentos complexos para evitar bugs na fonte padrão do PDF
+            texto = """
+1. A Camera Multiespectral (6 Bandas)
+Sua camera mede a reflectancia da luz nas folhas:
+- Azul e Vermelho: Medem a fotossintese.
+- Verde: Mostra o vigor natural.
+- Red Edge: Detecta estresse antes da folha amarelar.
+- NIR: Reflete a saude celular interna.
+- Pancromatica: Imagem de altissima resolucao.
+
+2. Inteligencia Artificial e Imagens
+A IA cruza a cor da imagem com as suas notas visuais para gerar um diagnostico. Arquivos .TIF sao convertidos automaticamente.
+
+3. Passo a Passo da Coleta
+1. Va na aba 'Nova Coleta de Dados'.
+2. Sincronize o Sensor Wi-Fi para puxar a umidade real.
+3. Preencha o Identificador (ex: Linha 4).
+4. Avalie a saude com os controles (0 a 10).
+5. Anexe as fotos, gere o relatorio da IA e clique em GRAVAR.
+            """
+            pdf.multi_cell(0, 8, txt=texto)
+            return pdf.output(dest="S").encode("latin-1")
+
+        # --- BOTÃO DE DOWNLOAD PDF ---
+        col_btn1, col_btn2 = st.columns([1, 2])
+        with col_btn1:
+            try:
+                pdf_bytes = gerar_pdf_manual()
+                st.download_button(
+                    label="📄 Baixar Manual em PDF",
+                    data=pdf_bytes,
+                    file_name="Manual_AgroMonitor.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+            except Exception as e:
+                st.warning("Instale a biblioteca FPDF para baixar o PDF (`pip install fpdf`)")
+
+        st.divider()
+
+        # --- A SUA ORGANIZAÇÃO EM ABAS (TABS) ---
+        tab1, tab2, tab3 = st.tabs([
+            "📷 A Câmera Multiespectral (6 Bandas)", 
+            "🤖 Inteligência Artificial e Imagens", 
+            "🛠️ Passo a Passo da Coleta"
+        ])
+        
+        with tab1:
+            st.write("""
+            Sua câmera não tira apenas "fotos", ela mede a reflectância da luz nas folhas (o quanto de luz a planta absorve ou rebate). Cada lente tem um papel específico:
+            
+            * **Azul (Blue) e Vermelho (Red):** Medem a fotossíntese. Plantas saudáveis absorvem muito azul e vermelho.
+            * **Verde (Green):** É o reflexo visível. Mostra o vigor da cor natural da planta.
+            * **Red Edge (Borda Vermelha):** É o seu "radar de alerta". Essa faixa detecta a perda de clorofila por doenças ou estresse hídrico *dias antes* da folha ficar amarela a olho nu.
+            * **NIR (Infravermelho Próximo):** Reflete a saúde celular interna. Se a planta sofre falta de água, as células murcham e o NIR despenca.
+            * **Pancromática (Lente Maior):** Tira uma foto de altíssima resolução de todas as luzes juntas para dar nitidez aos seus mapas.
             """)
             
-        with st.expander("⚙️ Como Funciona o Envio de Dados", expanded=True):
+        with tab2:
             st.write("""
-            1. **Sensor no Campo:** O sensor pega a umidade do solo e manda via Wi-Fi para o servidor.
-            2. **O Aplicativo:** Quando você aperta "Sincronizar", ele puxa esse número direto para a tela, preenchendo as amostras.
-            3. **As Fotos:** Ao enviar imagens da sua câmera (.TIF) para o sistema, ele formata as cores automaticamente para a Inteligência Artificial conseguir "enxergar" e devolver a nota e os possíveis problemas do lote.
+            * **Arquivos .TIF:** Quando você anexa arquivos TIF da sua câmera de drone/trator, nosso sistema os converte automaticamente para um formato que a Inteligência Artificial consiga ler.
+            * **Diagnóstico:** A IA cruza a cor da imagem com as notas que você forneceu para gerar um diagnóstico de pragas, falha nutricional ou estresse hídrico.
+            """)
+            
+        with tab3:
+            st.write("""
+            1. Vá na aba **Nova Coleta de Dados**.
+            2. Clique em **Sincronizar Sensor Wi-Fi** para puxar a umidade real do solo do seu lote.
+            3. Preencha o campo **Identificador** (ex: *Linha 4 - Setor Sul*). Sem ele, o sistema não salva a amostra.
+            4. Avalie a saúde da planta com os "sliders" (barrinhas de 0 a 10) para cada lente da câmera.
+            5. Anexe as fotos, gere o relatório da IA, grave um áudio se precisar, e clique no botão azul **GRAVAR AMOSTRAS** no final da página.
             """)
 
 # ==========================================
